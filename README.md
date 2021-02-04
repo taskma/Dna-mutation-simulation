@@ -9,12 +9,14 @@ Simulates the mutation of DNA on Organisms
 *
 *
 
-Game Screen1
+Simulation Screen 1
 ![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game2.png)
 *
 ![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/codons.jpg)
 *
 ![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/protein.jpg)
 *
-Game Screen2
+
+Simulation Screen2
+
 ![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game1.png)
