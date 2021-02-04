@@ -21,5 +21,5 @@ Simulation Screen2
 
 ![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game1.png)
 
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/amino_acid.png)
+![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/amino_acids.png)
 
