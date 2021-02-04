@@ -9,4 +9,4 @@ Simulates the mutation of DNA on Organisms
 
 
 ![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game1.png)
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game1.png)
+![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game2.png)
