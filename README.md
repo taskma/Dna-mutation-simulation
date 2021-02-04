@@ -4,7 +4,7 @@ Simulates the mutation of DNA on Organisms
 
 * Changing simulation parameters on settings form
 * Setting Dna length and protein sequence for organism features
-* Using real nucleotide codes of amino acid 
+* Using real nucleotide codes (codons) of amino acid 
 *
 *
 *
