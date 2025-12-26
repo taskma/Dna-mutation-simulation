@@ -53,13 +53,14 @@ From the UI you can tune settings such as:
 ### 2) Install dependencies
 
   Create a venv (recommended) and install:
+
+    bash
+    python -m venv .venv
+    # Windows: .venv\Scripts\activate
+    source .venv/bin/activate
   
-  python -m venv .venv
-  # Windows: .venv\Scripts\activate
-  source .venv/bin/activate
-  
-  pip install -U pip
-  pip install pygame
+    pip install -U pip
+    pip install pygame
 
 ### 3) Start the simulation
 
