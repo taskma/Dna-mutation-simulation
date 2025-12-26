@@ -64,7 +64,8 @@ From the UI you can tune settings such as:
 
 ### 3) Start the simulation
 
-   python Dna_Simulation.py
+    bash
+	python Dna_Simulation.py
 
 Project structure (high-level)
 	•	Dna_Simulation.py — main entry point (simulation loop + UI)
