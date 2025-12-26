@@ -46,11 +46,11 @@ From the UI you can tune settings such as:
 
 ### 1) Clone
 
-bash
-git clone https://github.com/taskma/Dna-mutation-simulation.git
-cd Dna-mutation-simulation
+	bash
+	git clone https://github.com/taskma/Dna-mutation-simulation.git
+	cd Dna-mutation-simulation
 
-2) Install dependencies
+### 2) Install dependencies
 
   Create a venv (recommended) and install:
   
@@ -61,7 +61,7 @@ cd Dna-mutation-simulation
   pip install -U pip
   pip install pygame
 
-3) Start the simulation
+### 3) Start the simulation
 
    python Dna_Simulation.py
 
