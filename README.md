@@ -87,19 +87,7 @@ If you want others to reuse it, add a LICENSE (MIT/Apache-2.0 are common choices
 
 
 
-Simulation Screen 1
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game2.png)
-*
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/codons.jpg)
-*
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/protein.jpg)
-*
 
-Simulation Screen2
-
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/game1.png)
-
-![alt text](https://github.com/taskma/Dna-mutation-simulation/blob/master/pictures/amino_acids.png)
 
 
 
