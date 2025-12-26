@@ -1,483 +1,556 @@
-import pygame
-import random
+#!/usr/bin/env python3
+"""Evolutionary mutation simulation (pygame + Tkinter)
+
+This project simulates a population of organisms with simple "DNA" strings.
+Each DNA is translated into an amino-acid sequence (toy translation), which is
+scanned for motif "proteins". Those proteins influence organism behavior:
+- food vs poison perception radii
+- steering tendencies toward/away from items
+
+The simulation is intentionally simplified for visualization/learning.
+
+Run:
+  python Dna_Simulation.py
+
+Dependencies:
+  pip install pygame numpy
+"""
+
+from __future__ import annotations
+
+import argparse
 import math
+import random
+import time
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
 import numpy as np
+import pygame
 from pygame import gfxdraw
 
 from Protein import Protein
 from UIcontrols import Settings
 
+# ----------------------------
+# Genetics / translation config
+# ----------------------------
 
-def main():
-	showCreationBots = False
-	showBotsAllActivities = False
-	min_bot_count = 10
-	starting_Bot_Count = 20
-	poison_ratio = 0.05
-	food_ratio = 0.2
-	mutation_rate = 0.005
-	steering_weights = 0.2
-	dna_length = 1000
-	perception_radius_mutation_range = 10
-	#reproduction_rate = 0.0005
-	reproduction_rate = 0.0008
-	initial_perception_radius = 1
-	boundary_size = 10
-	max_vel = 10
-	initial_max_force = 0.02
-	initial_health = 100
-	max_poison = 25
-	nutrition = [20, -80]
-	organisms = []
-	food = []
-	poison = []
-	proteins = []
-	oldest_ever = 0
-	oldest_ever_dna = []
-	start_codon = 'ATG'
-	stop_codons = ['TAA', 'TAG', 'TGA']
+START_CODON = "ATG"
+STOP_CODONS = {"TAA", "TAG", "TGA"}
 
+CODON_TABLE: Dict[str, str] = {
+    "TTT": "F", "CTT": "L", "ATT": "I", "GTT": "V",
+    "TTC": "F", "CTC": "L", "ATC": "I", "GTC": "V",
+    "TTA": "L", "CTA": "L", "ATA": "I", "GTA": "V",
+    "TTG": "L", "CTG": "L", "ATG": "M", "GTG": "V",
+    "TCT": "S", "CCT": "P", "ACT": "T", "GCT": "A",
+    "TCC": "S", "CCC": "P", "ACC": "T", "GCC": "A",
+    "TCA": "S", "CCA": "P", "ACA": "T", "GCA": "A",
+    "TCG": "S", "CCG": "P", "ACG": "T", "GCG": "A",
+    "TAT": "Y", "CAT": "H", "AAT": "N", "GAT": "D",
+    "TAC": "Y", "CAC": "H", "AAC": "N", "GAC": "D",
+    "CAA": "Q", "AAA": "K", "GAA": "E",
+    "CAG": "Q", "AAG": "K", "GAG": "E",
+    "TGT": "C", "CGT": "R", "AGT": "S", "GGT": "G",
+    "TGC": "C", "CGC": "R", "AGC": "S", "GGC": "G",
+    "CGA": "R", "AGA": "R", "GGA": "G",
+    "TGG": "W", "CGG": "R", "AGG": "R", "GGG": "G",
+}
 
-	aminoAcid_dictionary = {"TTT": "F", "CTT": "L", "ATT": "I", "GTT": "V",
-							"TTC": "F", "CTC": "L", "ATC": "I", "GTC": "V",
-							"TTA": "L", "CTA": "L", "ATA": "I", "GTA": "V",
-							"TTG": "L", "CTG": "L", "ATG": "M", "GTG": "V",
-							"TCT": "S", "CCT": "P", "ACT": "T", "GCT": "A",
-							"TCC": "S", "CCC": "P", "ACC": "T", "GCC": "A",
-							"TCA": "S", "CCA": "P", "ACA": "T", "GCA": "A",
-							"TCG": "S", "CCG": "P", "ACG": "T", "GCG": "A",
-							"TAT": "Y", "CAT": "H", "AAT": "N", "GAT": "D",
-							"TAC": "Y", "CAC": "H", "AAC": "N", "GAC": "D",
-							"TAA": "&", "CAA": "Q", "AAA": "K", "GAA": "E",
-							"TAG": "_", "CAG": "Q", "AAG": "K", "GAG": "E",
-							"TGT": "C", "CGT": "R", "AGT": "S", "GGT": "G",
-							"TGC": "C", "CGC": "R", "AGC": "S", "GGC": "G",
-							"TGA": "_", "CGA": "R", "AGA": "R", "GGA": "G",
-							"TGG": "W", "CGG": "R", "AGG": "R", "GGG": "G"
-							}
+# ----------------------------
+# Simulation configuration
+# ----------------------------
 
+@dataclass(slots=True)
+class SimulationConfig:
+    width: int = 800
+    height: int = 400
+    fps: int = 60
 
+    boundary_size: int = 10
+    initial_health: float = 100.0
+    max_vel: float = 10.0
 
-	# Pygame Options
-	pygame.init()
-	game_width = 800
-	game_height = 400
-	black = (0, 0, 0)
-	red = (255, 0, 0)
-	blue = (65, 131, 196)
-	green = (0, 255, 0)
-	fps = 60
+    # population / environment
+    min_bot_count: int = 10
+    starting_bot_count: int = 20
+    food_rate: float = 0.20
+    poison_rate: float = 0.05
+    max_poison: int = 25
 
-	gameDisplay = pygame.display.set_mode((game_width, game_height))
-	clock = pygame.time.Clock()
+    # genetics
+    dna_length: int = 1000
+    mutation_rate: float = 0.005
+    reproduction_rate: float = 0.0008
+    steering_weights: float = 0.20
+
+    # organism behavior
+    initial_perception_radius: float = 1.0
+    initial_max_force: float = 0.02
+    nutrition_food: float = 20.0
+    nutrition_poison: float = -80.0
 
 
+DEFAULT_PROTEINS: List[Protein] = [
+    Protein("food_perception", "ST"),
+    Protein("poison_perception", "AI"),
+    Protein("red_tail+", "QR"),
+    Protein("red_tail-", "RR"),
+    Protein("green_tail+", "PR"),
+    Protein("green_tail-", "LR"),
+]
 
-	def make_proteins():
-		proteins.append(Protein("food_perception", "ST"))
-		proteins.append(Protein("poison_perception", "AI"))
-		proteins.append(Protein("red_tail+", "QR"))
-		proteins.append(Protein("red_tail-", "RR"))
-		proteins.append(Protein("green_tail+", "PR"))
-		proteins.append(Protein("green_tail-", "LR"))
+# ----------------------------
+# Vector helpers
+# ----------------------------
 
-
-
-	# NI ==> AATATT
-	# QP ==> CAGACG
-
-	def lerp():
-		percent_health = organism.health/settings.initial_health
-		lerped_colour = (max(min((1-percent_health)*255,255),0), max(min(percent_health*255,255),0), 0)
-		return lerped_colour
-
-	def magnitude_calc(vector):
-		x = 0
-		for i in vector:
-			x += i**2
-		magnitude = x**0.5
-		return(magnitude)
-
-	def normalise(vector):
-		magnitude = magnitude_calc(vector)
-		if magnitude != 0:
-			vector = vector/magnitude
-		return(vector)
+def magnitude(v: np.ndarray) -> float:
+    return float(np.linalg.norm(v))
 
 
-
-	class create_dna():
-		def __init__(self, base_dna=None):
-			self.genetic_code = None
-			self.protein_sequence = None
-			self.proteins = []
-
-			if base_dna == None:
-				#Init
-				#self.genetic_code = initial_genetic_code
-				self.genetic_code = self.generateDNASequence(settings.dna_length)
-			else:
-				#Clone
-				self.genetic_code = base_dna.genetic_code
-				self.mutate_genetic_code()
-
-			self.protein_sequence = self.getAminoAcidSequence()
-			self.find_proteins()
-
-		def generateDNASequence(self, length):
-			l = ['C', 'A', 'G', 'T']
-			res = []
-			for i in range(0, length):
-				res.append(random.choice(l))
-			return ''.join([str(e) for e in res])
-
-		def alter_nucleotide(self, random_rate):
-			l = ['C', 'A', 'G', 'T']
-			if random.random() < random_rate:
-				changepos = random.randint(0, len(self.genetic_code) - 1)
-				dl = np.array(list(self.genetic_code))
-				ch = "" + dl[changepos]
-				l.remove(ch)
-				ms = random.choice(l)
-				dl[changepos] = ms
-				self.genetic_code = ''.join([str(e) for e in dl])
+def normalize(v: np.ndarray) -> np.ndarray:
+    n = np.linalg.norm(v)
+    if n == 0:
+        return v
+    return v / n
 
 
-		def add_nucleotide(self, random_rate):
-			l = ['C', 'A', 'G', 'T']
-			if random.random() < random_rate:
-				changepos = random.randint(0, len(self.genetic_code) - 1)
-				dl = np.array(list(self.genetic_code))
-				ms = random.choice(l)
-				dl = np.insert(dl, changepos, ms)
-				self.genetic_code = ''.join([str(e) for e in dl])
-
-		def remove_nucleotide(self, random_rate):
-			if random.random() < random_rate:
-				changepos = random.randint(0, len(self.genetic_code) - 1)
-				dl = np.array(list(self.genetic_code))
-				dl = np.delete(dl, changepos)
-				self.genetic_code = ''.join([str(e) for e in dl])
-
-		def multiple_nucleotide(self, random_rate):
-			if random.random() < random_rate:
-				self.genetic_code += self.genetic_code
-
-		def mutate_genetic_code(self):
-			count = int(dna_length * mutation_rate)
-			for i in range(count):
-				self.alter_nucleotide(0.4)
-				self.add_nucleotide(0.4)
-				self.remove_nucleotide(0.1)
-				self.multiple_nucleotide(0.002)
-
-		def protein_count(self, protein_name):
-			count = 0
-			for protein in self.proteins:
-				if protein_name == protein.name:
-					count += 1
-			return count
-
-		def find_proteins(self):
-			for protein in proteins:
-				protein_count = self.protein_sequence.count(protein.sequence)
-				for i in range(protein_count):
-					self.proteins.append(protein)
-
-		def replicate(self):
-			dna = create_dna(self)
-			return dna
-
-		def show(self, msg):
-			print(msg, ',greenForce:', self.green_force, 'redForce:', self.red_force, "seq:", self.protein_sequence)
-				  #'foodPerception:',
-				  #self.food_perception, 'poisonPerception:',
-				  #self.poison_perception)
+def clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
 
 
-		def getAminoAcidSequence(self):
-			sequence = ""
-			divisions = []
-			len_code = len(self.genetic_code)
-			start = self.genetic_code.find(start_codon)
-			min_stop = 0
-			while start >= 0 and min_stop >= 0:
-				min_stop = -1
-				stop = -1
-				for stop_codon in stop_codons:
-					stop = self.genetic_code.find(stop_codon, start + 3, len_code)
-					if min_stop == -1 or stop < min_stop:
-						min_stop = stop
-				if min_stop >= 0:
-					divisions.append(self.genetic_code[start + 3:min_stop])
-					start = self.genetic_code.find(start_codon, min_stop + 3, len_code)
+# ----------------------------
+# DNA model
+# ----------------------------
 
-			for division in divisions:
-				if division is None or division == "":
-					continue
-				sequence += '&'
-				x = len(division) - (3 + len(division) % 3)
-				for i in range(0, x + 1, 3):
-					# if aminoAcid_dictionary[self.code[i:i + 3]] == "_":
-					#    break
-					sequence += aminoAcid_dictionary[division[i:i + 3]]
-				sequence += '_'
-			return sequence
+class DNA:
+    """A mutable DNA string + derived protein sequence."""
 
-	class create_organism():
-		def __init__(self, x, y, replicating_dna=None):
-			# Genetic Features
-			self.food_perception = None
-			self.poison_perception = None
-			self.red_force = initial_max_force
-			self.green_force = initial_max_force
-			#
-			self.position = np.array([x,y], dtype='float64')
-			self.velocity = np.array([random.uniform(-settings.max_vel,settings.max_vel), random.uniform(-settings.max_vel, settings.max_vel)], dtype='float64')
-			self.acceleration = np.array([0, 0], dtype='float64')
-			self.colour = green
-			self.health = settings.initial_health
-			self.max_vel = 2
-			self.max_force = 0.5
-			self.size = 5
-			self.age = 1
-			self.dna = None
+    _alphabet = ("A", "C", "G", "T")
 
-			# DNA Replication
-			if replicating_dna != None:
-				# Mutation
-				self.dna = replicating_dna.replicate()
-				msg = "Child "
-			# New DNA
-			else:
-				self.dna = create_dna()
-				msg = "New   "
-			#
-			self.set_features_from_proteins(replicating_dna)
-			if showCreationBots:
-				self.show(msg)
+    def __init__(self, cfg: SimulationConfig, protein_library: Sequence[Protein], base: Optional["DNA"] = None) -> None:
+        self.cfg = cfg
+        self.genetic_code: str = base.genetic_code if base else self._random_code(cfg.dna_length)
+        if base:
+            self._mutate()
+        self.protein_sequence: str = self._translate()
+        self.proteins: List[Protein] = self._scan_proteins(protein_library)
 
-		def set_features_from_proteins(self, replicating_dna):
-			self.food_perception = 10 * self.dna.protein_count("food_perception") + random.uniform(0, initial_perception_radius)
-			self.poison_perception = 10 * self.dna.protein_count("poison_perception") + random.uniform(0, initial_perception_radius)
-			self.green_force = 0
-			self.red_force = 0
-			self.green_force += settings.steering_weights * self.dna.protein_count("green_tail+") + random.uniform(0, initial_max_force)
-			self.green_force += -settings.steering_weights * self.dna.protein_count("green_tail-") + random.uniform(0, -initial_max_force)
-			self.red_force += settings.steering_weights * self.dna.protein_count("red_tail+") + random.uniform(0, initial_max_force)
-			self.red_force += -settings.steering_weights * self.dna.protein_count("red_tail-") + random.uniform(0, -initial_max_force)
+    def replicate(self, protein_library: Sequence[Protein]) -> "DNA":
+        return DNA(self.cfg, protein_library=protein_library, base=self)
 
-		def update(self):
-			self.velocity += self.acceleration
-			self.velocity = normalise(self.velocity)*self.max_vel
-			self.position += self.velocity
-			self.acceleration *= 0
-			self.health -= 0.2
-			self.colour = lerp()
-			self.health = min(settings.initial_health, self.health)
-			self.age += 1
+    @staticmethod
+    def _random_code(length: int) -> str:
+        return "".join(random.choice(DNA._alphabet) for _ in range(length))
 
+    def _mutate(self) -> None:
+        # expected number of operations proportional to dna_length * mutation_rate
+        ops = max(1, int(self.cfg.dna_length * self.cfg.mutation_rate))
+        code = list(self.genetic_code)
 
-		def show(self, msg):
-			print(msg,
-				  'foodPerception:', round(self.food_perception, 2), 'poisonPerception:',
-				  round(self.poison_perception, 2), "seq:", self.dna.protein_sequence, )
+        for _ in range(ops):
+            r = random.random()
+            if r < 0.40:
+                # alter nucleotide
+                i = random.randrange(len(code))
+                old = code[i]
+                choices = [c for c in self._alphabet if c != old]
+                code[i] = random.choice(choices)
+            elif r < 0.80:
+                # insert nucleotide
+                i = random.randrange(len(code) + 1)
+                code.insert(i, random.choice(self._alphabet))
+            elif r < 0.90:
+                # remove nucleotide (if possible)
+                if len(code) > 1:
+                    i = random.randrange(len(code))
+                    code.pop(i)
+            else:
+                # rare duplication
+                if random.random() < 0.002:
+                    code = code + code
 
-		def reproduce(self):
-			if random.random() < settings.reproduction_rate:
-				if showCreationBots:
-					self.show("Parent")
-				organisms.append(create_organism(self.position[0], self.position[1], self.dna))
+        self.genetic_code = "".join(code)
 
+    def _translate(self) -> str:
+        """Toy translation: find in-frame ORFs starting at ATG, end at first in-frame stop."""
+        seq = self.genetic_code
+        aa_out: List[str] = []
+        n = len(seq)
 
-		def dead(self):
-			if self.health > 0:
-				return(False)
-			else:
-				if self.position[0] < game_width - boundary_size and self.position[0] > boundary_size and self.position[1] < game_height - boundary_size and self.position[1] > boundary_size:
-					food.append(self.position)
-				return(True)
+        i = 0
+        while True:
+            start = seq.find(START_CODON, i)
+            if start < 0:
+                break
 
-		def apply_force(self, force):
-			self.acceleration += force
+            # translate codons in-frame after start
+            j = start
+            aa_out.append("&")  # ORF marker start
+            j += 3
+            while j + 2 < n:
+                codon = seq[j : j + 3]
+                if codon in STOP_CODONS:
+                    aa_out.append("_")  # ORF marker end
+                    j += 3
+                    break
+                aa_out.append(CODON_TABLE.get(codon, "?"))
+                j += 3
 
-		def seek(self, target):
-			desired_vel = np.add(target, -self.position)
-			desired_vel = normalise(desired_vel)*self.max_vel
-			steering_force = np.add(desired_vel, -self.velocity)
-			steering_force = normalise(steering_force)*self.max_force
-			return(steering_force)
+            i = j if j > start else start + 3
 
-		def eat(self, list_of_stuff, index):
-			closest = None
-			closest_distance = max(game_width, game_height)
-			bot_x = self.position[0]
-			bot_y = self.position[1]
-			item_number = len(list_of_stuff)-1
-			for i in list_of_stuff[::-1]:
-				item_x = i[0]
-				item_y = i[1]
-				distance = math.hypot(bot_x-item_x, bot_y-item_y)
-				if distance < 5:
-					list_of_stuff.pop(item_number)
-					self.health += nutrition[index]
-				if distance < closest_distance:
-					closest_distance = distance
-					closest = i
-				item_number -=1
-			if index == 0:
-				perception = self.food_perception
-				force = self.green_force
-			else:
-				perception = self.poison_perception
-				force = self.red_force
-			if closest_distance < perception:
-				seek = self.seek(closest) # index)
-				seek *= force
-				seek = normalise(seek)*self.max_force
-				self.apply_force(seek)
+        return "".join(aa_out)
+
+    def _scan_proteins(self, protein_library: Sequence[Protein]) -> List[Protein]:
+        found: List[Protein] = []
+        ps = self.protein_sequence
+        if not ps:
+            return found
+        for p in protein_library:
+            count = ps.count(p.sequence)
+            if count > 0:
+                found.extend([p] * count)
+        return found
+
+    def protein_count(self, name: str) -> int:
+        return sum(1 for p in self.proteins if p.name == name)
 
 
-		def boundaries(self):
-			desired = None
-			x_pos = self.position[0]
-			y_pos = self.position[1]
-			if x_pos < boundary_size:
-				desired = np.array([self.max_vel, self.velocity[1]])
-				steer = desired-self.velocity
-				steer = normalise(steer)*self.max_force
-				self.apply_force(steer)
-			elif x_pos > game_width - boundary_size:
-				desired = np.array([-self.max_vel, self.velocity[1]])
-				steer = desired-self.velocity
-				steer = normalise(steer)*self.max_force
-				self.apply_force(steer)
-			if y_pos < boundary_size:
-				desired = np.array([self.velocity[0], self.max_vel])
-				steer = desired-self.velocity
-				steer = normalise(steer)*self.max_force
-				self.apply_force(steer)
-			elif y_pos > game_height - boundary_size:
-				desired = np.array([self.velocity[0], -self.max_vel])
-				steer = desired-self.velocity
-				steer = normalise(steer)*self.max_force
-				self.apply_force(steer)
-			'''if desired != None:
-				steer = desired-self.velocity
-				steer = normalise(steer)*self.max_force
-				self.apply_force(steer)'''
+# ----------------------------
+# Organism model
+# ----------------------------
 
-		def draw_bot(self, index):
-			pygame.gfxdraw.aacircle(gameDisplay, int(self.position[0]), int(self.position[1]), 10, self.colour)
-			filled_color = self.colour
-			if settings.current_selection == index:
-				filled_color = blue
-			pygame.gfxdraw.filled_circle(gameDisplay, int(self.position[0]), int(self.position[1]), 10, filled_color)
-			pygame.draw.circle(gameDisplay, green, (int(self.position[0]), int(self.position[1])),
-							   abs(int(self.food_perception)), abs(int(min(2, self.food_perception))))
-			pygame.draw.circle(gameDisplay, red, (int(self.position[0]), int(self.position[1])), abs(int(self.poison_perception)),
-							   abs(int(min(2, self.poison_perception))))
-			pygame.draw.line(gameDisplay, green, (int(self.position[0]), int(self.position[1])), (
-				int(self.position[0] + (self.velocity[0] * self.green_force * 25)),
-				int(self.position[1] + (self.velocity[1] * self.green_force * 25))), 3)
-			pygame.draw.line(gameDisplay, red, (int(self.position[0]), int(self.position[1])), (
-				int(self.position[0] + (self.velocity[0] * self.red_force * 25)),
-				int(self.position[1] + (self.velocity[1] * self.red_force * 25))), 2)
+class Organism:
+    def __init__(
+        self,
+        cfg: SimulationConfig,
+        protein_library: Sequence[Protein],
+        x: float,
+        y: float,
+        base_dna: Optional[DNA] = None,
+    ) -> None:
+        self.cfg = cfg
+        self.position = np.array([x, y], dtype=np.float64)
+        self.velocity = np.array(
+            [random.uniform(-cfg.max_vel, cfg.max_vel), random.uniform(-cfg.max_vel, cfg.max_vel)],
+            dtype=np.float64,
+        )
+        self.acceleration = np.zeros(2, dtype=np.float64)
 
-	# Starting
-	make_proteins()
-	# Settings UI
-	settings = Settings(proteins)
-	settings.poison_rate = poison_ratio
-	settings.food_rate = food_ratio
-	settings.min_bot_count = min_bot_count
-	settings.max_vel = max_vel
-	settings.initial_health = initial_health
-	settings.max_poison = max_poison
-	settings.mutation_rate = mutation_rate
-	settings.reproduction_rate = reproduction_rate
-	settings.steering_weights = steering_weights
-	settings.dna_length = dna_length
-	#
-	print(create_dna().protein_sequence)
-	for i in range(starting_Bot_Count):
-		organisms.append(create_organism(random.uniform(0,game_width),random.uniform(0,game_height)))
-	running = True
-	# Events
-	every_second_event, t, trail = pygame.USEREVENT + 1, 500, []
-	pygame.time.set_timer(every_second_event, t)
-	proteins_event, t2, trail2 = pygame.USEREVENT + 2, 5000, []
-	pygame.time.set_timer(proteins_event, t2)
-	listbox_event, t3, trail3 = pygame.USEREVENT + 3, 2000, []
-	pygame.time.set_timer(listbox_event, t3)
-	# LOOP
-	while(running):
-		settings.root.update()
-		gameDisplay.fill(black)
-		if len(organisms)< settings.min_bot_count or random.random() < 0.0001:
-			organisms.append(create_organism(random.uniform(0,game_width),random.uniform(0,game_height)))
-		if random.random()<settings.food_rate:
-			food.append(np.array([random.uniform(boundary_size, game_width-boundary_size), random.uniform(boundary_size, game_height-boundary_size)], dtype='float64'))
-		if random.random()<settings.poison_rate:
-			poison.append(np.array([random.uniform(boundary_size, game_width-boundary_size), random.uniform(boundary_size, game_height-boundary_size)], dtype='float64'))
-		if len(poison)>settings.max_poison:
-			poison.pop(0)
+        self.health: float = cfg.initial_health
+        self.age: int = 1
 
-		for event in pygame.event.get():
-			if event.type == pygame.QUIT:
-				running = False
-			#print(event)
-			elif event.type == every_second_event:
-				settings.root.title('Number of Organisms: ' + str(len(organisms)))
-			elif event.type == proteins_event:
-				proteins = []
-				proteins = settings.user_proteins
-			elif event.type == listbox_event:
-				create_organism_list(organisms, settings)
+        self.max_vel: float = 2.0
+        self.max_force: float = 0.5
 
-		index = -1
-		for organism in organisms[::-1]:
-			index += 1
-			organism.eat(food, 0)
-			organism.eat(poison, 1)
-			organism.boundaries()
-			organism.seek(pygame.mouse.get_pos())
-			organism.update()
-			if organism.age > oldest_ever:
-				oldest_ever = organism.age
-				oldest_ever_dna = organism.dna
-				if showBotsAllActivities:
-					print(oldest_ever, oldest_ever_dna)
-			organism.draw_bot(index)
-			if organism.dead():
-				organisms.remove(organism)
-			else:
-				organism.reproduce()
+        self.dna: DNA = (base_dna.replicate(protein_library) if base_dna else DNA(cfg, protein_library))
+        self._derive_traits()
+
+    # ----- traits
+    def _derive_traits(self) -> None:
+        # perception scales with protein motif counts + tiny randomness
+        self.food_perception = 10.0 * self.dna.protein_count("food_perception") + random.uniform(0.0, self.cfg.initial_perception_radius)
+        self.poison_perception = 10.0 * self.dna.protein_count("poison_perception") + random.uniform(0.0, self.cfg.initial_perception_radius)
+
+        # steering weights influenced by proteins; can be negative
+        gw = self.cfg.steering_weights
+        self.green_force = 0.0
+        self.red_force = 0.0
+
+        self.green_force += gw * self.dna.protein_count("green_tail+") + random.uniform(0.0, self.cfg.initial_max_force)
+        self.green_force += -gw * self.dna.protein_count("green_tail-") + random.uniform(0.0, self.cfg.initial_max_force)
+
+        self.red_force += gw * self.dna.protein_count("red_tail+") + random.uniform(0.0, self.cfg.initial_max_force)
+        self.red_force += -gw * self.dna.protein_count("red_tail-") + random.uniform(0.0, self.cfg.initial_max_force)
+
+    # ----- physics
+    def apply_force(self, f: np.ndarray) -> None:
+        self.acceleration += f
+
+    def seek(self, target_xy: Sequence[float]) -> np.ndarray:
+        target = np.array(target_xy, dtype=np.float64)
+        desired = normalize(target - self.position) * self.max_vel
+        steer = normalize(desired - self.velocity) * self.max_force
+        return steer
+
+    def boundaries(self) -> None:
+        b = self.cfg.boundary_size
+        w = self.cfg.width
+        h = self.cfg.height
+
+        x, y = self.position
+        desired: Optional[np.ndarray] = None
+
+        if x < b:
+            desired = np.array([self.max_vel, self.velocity[1]])
+        elif x > w - b:
+            desired = np.array([-self.max_vel, self.velocity[1]])
+
+        if y < b:
+            desired = np.array([self.velocity[0], self.max_vel]) if desired is None else np.array([desired[0], self.max_vel])
+        elif y > h - b:
+            desired = np.array([self.velocity[0], -self.max_vel]) if desired is None else np.array([desired[0], -self.max_vel])
+
+        if desired is not None:
+            steer = normalize(desired - self.velocity) * self.max_force
+            self.apply_force(steer)
+
+    def update(self, initial_health: float) -> None:
+        self.velocity += self.acceleration
+        self.velocity = normalize(self.velocity) * self.max_vel
+        self.position += self.velocity
+        self.acceleration *= 0.0
+
+        # health decays each tick
+        self.health -= 0.2
+        self.health = min(initial_health, self.health)
+        self.age += 1
+
+    # ----- behaviors
+    def reproduce(self, population: List["Organism"], protein_library: Sequence[Protein]) -> None:
+        if random.random() < self.cfg.reproduction_rate:
+            population.append(Organism(self.cfg, protein_library, float(self.position[0]), float(self.position[1]), base_dna=self.dna))
+
+    def is_dead(self) -> bool:
+        return self.health <= 0.0
+
+    def drop_food_if_inside(self, food: List[np.ndarray]) -> None:
+        b = self.cfg.boundary_size
+        if b < self.position[0] < self.cfg.width - b and b < self.position[1] < self.cfg.height - b:
+            food.append(self.position.copy())
+
+    def _eat_from(self, items: List[np.ndarray], nutrition: float, perception: float, force_scale: float) -> None:
+        if not items:
+            return
+
+        closest_idx: Optional[int] = None
+        closest_dist = float("inf")
+
+        # iterate backwards so popping is safe
+        for idx in range(len(items) - 1, -1, -1):
+            item = items[idx]
+            dist = math.hypot(self.position[0] - item[0], self.position[1] - item[1])
+
+            if dist < 5.0:
+                items.pop(idx)
+                self.health += nutrition
+                continue
+
+            if dist < closest_dist:
+                closest_dist = dist
+                closest_idx = idx
+
+        if closest_idx is None:
+            return
+
+        if closest_dist < perception:
+            steer = self.seek(items[closest_idx])
+            steer *= force_scale
+            steer = normalize(steer) * self.max_force
+            self.apply_force(steer)
+
+    def eat(self, food: List[np.ndarray], poison: List[np.ndarray]) -> None:
+        self._eat_from(food, self.cfg.nutrition_food, self.food_perception, self.green_force)
+        self._eat_from(poison, self.cfg.nutrition_poison, self.poison_perception, self.red_force)
+
+    # ----- rendering
+    def _health_color(self, initial_health: float) -> Tuple[int, int, int]:
+        # red -> green as health increases
+        p = clamp01(self.health / max(1e-6, initial_health))
+        r = int(clamp01(1.0 - p) * 255)
+        g = int(clamp01(p) * 255)
+        return (r, g, 0)
+
+    def draw(self, surface: pygame.Surface, index: int, selected_index: int, colors: Dict[str, Tuple[int, int, int]], initial_health: float) -> None:
+        x, y = int(self.position[0]), int(self.position[1])
+        col = self._health_color(initial_health)
+        fill = colors["blue"] if selected_index == index else col
+
+        gfxdraw.aacircle(surface, x, y, 10, col)
+        gfxdraw.filled_circle(surface, x, y, 10, fill)
+
+        # perception radii
+        pygame.draw.circle(surface, colors["green"], (x, y), abs(int(self.food_perception)), max(1, abs(int(min(2, self.food_perception)))))
+        pygame.draw.circle(surface, colors["red"], (x, y), abs(int(self.poison_perception)), max(1, abs(int(min(2, self.poison_perception)))))
+
+        # steering direction hints
+        pygame.draw.line(surface, colors["green"], (x, y), (int(x + self.velocity[0] * self.green_force * 25), int(y + self.velocity[1] * self.green_force * 25)), 3)
+        pygame.draw.line(surface, colors["red"], (x, y), (int(x + self.velocity[0] * self.red_force * 25), int(y + self.velocity[1] * self.red_force * 25)), 2)
 
 
-		for i in food:
-			pygame.draw.circle(gameDisplay, (0, 255, 0), (int(i[0]), int(i[1])), 3)
-		for i in poison:
-			pygame.draw.circle(gameDisplay, (255, 0, 0), (int(i[0]), int(i[1])), 3)
-		pygame.display.update()
-		clock.tick(fps)
+# ----------------------------
+# Simulation runtime
+# ----------------------------
 
-	pygame.quit()
-	quit()
+class Simulation:
+    def __init__(self, cfg: SimulationConfig) -> None:
+        self.cfg = cfg
+
+        self.colors = {
+            "black": (0, 0, 0),
+            "red": (255, 0, 0),
+            "green": (0, 255, 0),
+            "blue": (65, 131, 196),
+        }
+
+        self.organisms: List[Organism] = []
+        self.food: List[np.ndarray] = []
+        self.poison: List[np.ndarray] = []
+
+        self.oldest_ever: int = 0
+        self.protein_library: List[Protein] = list(DEFAULT_PROTEINS)
+
+        # UI
+        self.settings = Settings(self.protein_library)
+        self._apply_defaults_to_ui()
+
+    def _apply_defaults_to_ui(self) -> None:
+        s = self.settings
+        s.poison_rate = self.cfg.poison_rate
+        s.food_rate = self.cfg.food_rate
+        s.min_bot_count = self.cfg.min_bot_count
+        s.max_vel = self.cfg.max_vel
+        s.initial_health = self.cfg.initial_health
+        s.max_poison = self.cfg.max_poison
+        s.mutation_rate = self.cfg.mutation_rate
+        s.reproduction_rate = self.cfg.reproduction_rate
+        s.steering_weights = self.cfg.steering_weights
+        s.dna_length = self.cfg.dna_length
+
+    def _sync_cfg_from_ui(self) -> None:
+        # allows live tuning
+        s = self.settings
+        self.cfg.poison_rate = float(s.poison_rate)
+        self.cfg.food_rate = float(s.food_rate)
+        self.cfg.min_bot_count = int(s.min_bot_count)
+        self.cfg.max_vel = float(s.max_vel)
+        self.cfg.initial_health = float(s.initial_health)
+        self.cfg.max_poison = int(s.max_poison)
+        self.cfg.mutation_rate = float(s.mutation_rate)
+        self.cfg.reproduction_rate = float(s.reproduction_rate)
+        self.cfg.steering_weights = float(s.steering_weights)
+        self.cfg.dna_length = int(s.dna_length)
+
+    def _seed_population(self) -> None:
+        for _ in range(self.cfg.starting_bot_count):
+            self.organisms.append(
+                Organism(
+                    self.cfg,
+                    self.protein_library,
+                    random.uniform(0, self.cfg.width),
+                    random.uniform(0, self.cfg.height),
+                )
+            )
+
+    def _spawn_items(self) -> None:
+        b = self.cfg.boundary_size
+        if random.random() < self.cfg.food_rate:
+            self.food.append(np.array([random.uniform(b, self.cfg.width - b), random.uniform(b, self.cfg.height - b)], dtype=np.float64))
+
+        if random.random() < self.cfg.poison_rate:
+            self.poison.append(np.array([random.uniform(b, self.cfg.width - b), random.uniform(b, self.cfg.height - b)], dtype=np.float64))
+
+        while len(self.poison) > self.cfg.max_poison:
+            self.poison.pop(0)
+
+        # maintain a minimum population, plus a small chance of spontaneous spawn
+        if len(self.organisms) < self.cfg.min_bot_count or random.random() < 0.0001:
+            self.organisms.append(Organism(self.cfg, self.protein_library, random.uniform(0, self.cfg.width), random.uniform(0, self.cfg.height)))
+
+    def _update_listbox(self) -> None:
+        entries: List[str] = []
+        for idx, org in enumerate(self.organisms, start=1):
+            parts = [p.sequence for p in org.dna.proteins] or ["None"]
+            entries.append(f"{idx}) Proteins: {'-'.join(parts)}    Seq: {org.dna.protein_sequence}")
+        self.settings.listbox_widget = entries
+
+    def run(self) -> None:
+        pygame.init()
+        display = pygame.display.set_mode((self.cfg.width, self.cfg.height))
+        clock = pygame.time.Clock()
+
+        self._seed_population()
+
+        # periodic events
+        EVENT_TITLE = pygame.USEREVENT + 1
+        EVENT_PROTEINS = pygame.USEREVENT + 2
+        EVENT_LISTBOX = pygame.USEREVENT + 3
+
+        pygame.time.set_timer(EVENT_TITLE, 500)
+        pygame.time.set_timer(EVENT_PROTEINS, 5000)
+        pygame.time.set_timer(EVENT_LISTBOX, 2000)
+
+        running = True
+        while running:
+            # UI step
+            self.settings.root.update()
+            self._sync_cfg_from_ui()
+
+            display.fill(self.colors["black"])
+            self._spawn_items()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == EVENT_TITLE:
+                    self.settings.root.title(f"Number of Organisms: {len(self.organisms)}")
+                elif event.type == EVENT_PROTEINS:
+                    # re-load proteins from UI
+                    self.protein_library = self.settings.user_proteins or list(DEFAULT_PROTEINS)
+                elif event.type == EVENT_LISTBOX:
+                    self._update_listbox()
+
+            # simulation step
+            selected = self.settings.current_selection
+            for idx in range(len(self.organisms) - 1, -1, -1):
+                org = self.organisms[idx]
+
+                org.eat(self.food, self.poison)
+                org.boundaries()
+                org.update(initial_health=self.cfg.initial_health)
+
+                if org.age > self.oldest_ever:
+                    self.oldest_ever = org.age
+
+                org.draw(display, index=idx, selected_index=selected, colors=self.colors, initial_health=self.cfg.initial_health)
+
+                if org.is_dead():
+                    org.drop_food_if_inside(self.food)
+                    self.organisms.pop(idx)
+                else:
+                    org.reproduce(self.organisms, self.protein_library)
+
+            # render environment items
+            for f in self.food:
+                pygame.draw.circle(display, self.colors["green"], (int(f[0]), int(f[1])), 3)
+            for p in self.poison:
+                pygame.draw.circle(display, self.colors["red"], (int(p[0]), int(p[1])), 3)
+
+            pygame.display.update()
+            clock.tick(self.cfg.fps)
+
+        pygame.quit()
 
 
-def create_organism_list(organisms, settings):
-	entry_list = []
-	ind = 0
-	for org in organisms:
-		ind += 1
-		str_protein = 'Proteins: None '
-		for protein in org.dna.proteins:
-			str_protein = str_protein.replace("None", "")
-			str_protein += protein.sequence + '-'
-		entry = str(ind) + ') ' + str_protein + '    Seq: ' + org.dna.protein_sequence
-		entry_list.append(entry)
-	settings.listbox_widget = entry_list
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Evolutionary DNA mutation simulation (pygame + Tkinter).")
+    p.add_argument("--seed", type=int, default=None, help="Random seed (for reproducible runs)")
+    p.add_argument("--width", type=int, default=800)
+    p.add_argument("--height", type=int, default=400)
+    p.add_argument("--fps", type=int, default=60)
+    return p.parse_args()
 
 
-main()
+def main() -> None:
+    args = parse_args()
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+
+    cfg = SimulationConfig(width=args.width, height=args.height, fps=args.fps)
+    Simulation(cfg).run()
+
+
+if __name__ == "__main__":
+    main()
